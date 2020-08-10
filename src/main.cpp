@@ -1,17 +1,15 @@
 #include <Arduino.h>
 #include "display.h"
+#include "timedisplay.h"
 #include "font.h"
 
 Display display;
-
-void setup()
-{
-    Serial.begin(115200);
-    display.Init();
-}
+TimeDisplay timeDisplay(&display);
 
 
-unsigned long now = 0;
+
+unsigned long nowMicros = 0;
+unsigned long prev = 0;
 unsigned long lastUpdate = 0;
 unsigned long updateInterval = 100;
 
@@ -40,26 +38,43 @@ uint8_t chr2[ROWS] = {
     0x00
 };
 
+void setup()
+{
+    Serial.begin(115200);
+    display.Init();
+    nowMicros = micros();
+}
+
 void loop()
 {
-    now = millis();
-    display.Drive();
+    nowMicros = micros();
 
-    if (now - lastUpdate >= updateInterval)
+
+    bool didwork = display.Drive(&nowMicros);
+    if (didwork)
     {
-        display.Clear();
-        display.Write(font_6x7[n], bitPosition);
-        Serial.println(bitPosition);
+        uint8_t t = timeDisplay.TaskPump(&nowMicros);
 
-        bitPosition--;
-        if (bitPosition == -8)
-        {
-            bitPosition = COLS * 8;
+        unsigned long duration = micros() - nowMicros;
 
-            n++;
-            if (n == 10) n = 0;
-        }
+        // Serial.print("Task ");
+        // Serial.print(t);
+        // Serial.print(" took ");
+        // Serial.print(duration);
+        // Serial.print("/");
+        // Serial.print(display.RowIntervalMicros());
+        // Serial.print(": ");
+        // if (duration >= display.RowIntervalMicros())
+        // {
+        //     Serial.print("TOO LONG");
+        // }
+        // else
+        // {
+        //     Serial.print("OK");
+        // }
 
-        lastUpdate = now;
+        // Serial.println();
+
+
     }
 }

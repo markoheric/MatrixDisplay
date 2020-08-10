@@ -14,7 +14,11 @@
 class Display
 {
 protected:
-    uint8_t buff[ROWS][COLS];
+    static const uint8_t NUM_BUFFERS = 2;
+    uint8_t displayingBuffer = 0;
+    uint8_t workingBuffer = 1;
+
+    uint8_t buffer[NUM_BUFFERS][ROWS][COLS];
 
     uint8_t latchMask[2] =
         // PORTB     PORTD
@@ -101,10 +105,11 @@ protected:
 
 
     unsigned long lastRowUpdateMicros = 0ul;
-    unsigned long rowUpdateIntervalMicros = ((1000ul * 1000ul) / 60ul /*fps*/) / ROWS;
+    unsigned long rowUpdateIntervalMicros = ((1000ul * 1000ul) / 60ul /*fps*/) / (ROWS +1);
     uint8_t currentRow = 0;
 
 public:
+
     void Init()
     {
         // data pins
@@ -139,12 +144,12 @@ public:
             LATCH_CLEAR_DELAY();
         }
 
-        memset(buff, 0, ROWS * COLS * sizeof(uint8_t));
+        memset(buffer, 0, NUM_BUFFERS * ROWS * COLS * sizeof(uint8_t));
 
-        for (uint8_t r = 0; r < ROWS; r++)
-        {
-            buff[r][0] = (1 << r) | (1 << (ROWS - r - 1));
-        }
+        // for (uint8_t r = 0; r < ROWS; r++)
+        // {
+        //     buffer[currentBuffer][r][0] = (1 << r) | (1 << (ROWS - r - 1));
+        // }
     }
 
     void DisplayRow(uint8_t row)
@@ -163,7 +168,7 @@ public:
 
         for (uint8_t col = 0; col < COLS; col++)
         {
-            SetData(buff[row][col]); 
+            SetData(buffer[displayingBuffer][row][col]); 
             DATA_SET_DELAY();
 
             SetLatchCol(col);
@@ -187,18 +192,33 @@ public:
     unsigned long nowMicros;
     unsigned long sinceLastRowUpdateMicros;
 
-    bool Drive()
+    bool Drive(unsigned long* _nowMicros)
     {
-        nowMicros = micros();
+        nowMicros = *_nowMicros;
+
         sinceLastRowUpdateMicros = nowMicros - lastRowUpdateMicros;
 
         if (sinceLastRowUpdateMicros >= rowUpdateIntervalMicros)
         {
             lastRowUpdateMicros = nowMicros;
 
-            DisplayRow(currentRow);
+            if (currentRow < ROWS)
+            {
+                DisplayRow(currentRow);
+            }
+            else
+            {
+                // vsync
+            }
 
-            currentRow = (currentRow +1) % ROWS;
+            if (currentRow == ROWS)
+            {
+                currentRow = 0;
+            }
+            else
+            {
+                currentRow++;
+            }
             return true;
         }
         return false;
@@ -206,10 +226,20 @@ public:
 
     void Clear()
     {
-        memset(buff, 0, ROWS * COLS * sizeof(uint8_t));
+        memset(buffer[workingBuffer], 0, ROWS * COLS * sizeof(uint8_t));
     }
 
-    void Write(uint8_t data[ROWS], int8_t bitPosition)
+    inline uint8_t* WorkingBuffer()
+    {
+        return (uint8_t*)(buffer[workingBuffer]);
+    }
+
+    inline unsigned long RowIntervalMicros()
+    {
+        return rowUpdateIntervalMicros;
+    }
+
+    void Write(uint8_t data[ROWS], int8_t bitPosition, uint8_t bitWidth = 0)
     {
         int8_t driver = bitPosition / (int8_t)8;
         if (bitPosition < 0) driver--;
@@ -225,19 +255,19 @@ public:
         }
 
 
-        Serial.print("bitpos: ");
-        Serial.print(bitPosition);
-        Serial.print(" driver: ");
-        Serial.print(driver);
-        Serial.print(" driverpos: ");
-        Serial.println(driverPos);
+        // Serial.print("bitpos: ");
+        // Serial.print(bitPosition);
+        // Serial.print(" driver: ");
+        // Serial.print(driver);
+        // Serial.print(" driverpos: ");
+        // Serial.println(driverPos);
 
         if (driver >= 0 && driver < COLS)
         {
             for (uint8_t r = 0; r < ROWS; r++)
             {
                 uint8_t currDriverData = data[r] << driverPos;
-                buff[r][driver] = currDriverData;
+                buffer[workingBuffer][r][driver] |= currDriverData;
             }
         }
 
@@ -245,8 +275,28 @@ public:
         {
             for (uint8_t r = 0; r < ROWS; r++)
             {
-                buff[r][nextDriver] = data[r] >> (8 - driverPos);
+                buffer[workingBuffer][r][nextDriver] |= data[r] >> (8 - driverPos);
             }
+        }
+    }
+
+    inline bool Vsync()
+    {
+        return currentRow == ROWS;
+    }
+
+    inline void FlipBuffer()
+    {
+        workingBuffer++;
+        if (workingBuffer == NUM_BUFFERS)
+        {
+            workingBuffer = 0;
+        }
+
+        displayingBuffer++;
+        if (displayingBuffer == NUM_BUFFERS)
+        {
+            displayingBuffer = 0;
         }
     }
 };
